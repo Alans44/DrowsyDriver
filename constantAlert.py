@@ -9,7 +9,9 @@ speech_config = speechsdk.SpeechConfig(subscription="0f1530ace5b74b329819de48cc9
 
 def speak_alert():
     speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config)
-    speech_synthesizer.speak_text_async("Alert! Drowsiness detected.").get()
+    while True:
+        speech_synthesizer.speak_text_async("Alert! Drowsiness detected.").get()
+        time.sleep(2)
 
 # ear = eye aspect ratio 
 # most every example I saw of tracking eyes closing or opening used this approach
@@ -43,13 +45,13 @@ alert_counter = 0
 last_alert_time = 0
 ALERT_CUSHION = 10
 #MAX_ALERTS = 2
+eye_closed_time = None
+alert_thread = None
+EYES_CLOSED_THRESHOLD = 5 
 ## mouth threshold 
 MOUTH_AR_THRESHOLD = 0.6
 
 cap = cv2.VideoCapture(1)
-cv2.namedWindow('Facial Landmarks', cv2.WINDOW_NORMAL)
-cv2.setWindowProperty('Facial Landmarks', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-
 
 while True:
     ret, frame = cap.read()
@@ -97,21 +99,19 @@ while True:
         # Check if both eyes are closed (both EAR values below threshold)
         if left_ear < EYE_AR_THRESHOLD and right_ear < EYE_AR_THRESHOLD:
             eye_status = "Both Closed"
-        # Check for winking (one eye closed and the other open with a significant EAR difference)
-        # I found this to be necessary because the closed / open feature needs tuning
             if eye_closed_time is None:
-                eye_closed_time = time.time() 
-            elif time.time() - eye_closed_time >= 2.2: #eyes closed for a second or more
-                eye_closed_counter += 1
-                eye_closed_time = None #resets timer each time
-
-        elif abs(left_ear - right_ear) > WINK_DIFF_THRESHOLD:
-            if left_ear < right_ear:
-                eye_status = "Winking Left"
-            else:
-                eye_status = "Winking Right"
+                eye_closed_time = time.time()
+            elif time.time() - eye_closed_time >= EYES_CLOSED_THRESHOLD:
+                if alert_thread is None or not alert_thread.is_alive():
+                    alert_thread = threading.Thread(target=speak_alert)
+                    alert_thread.daemon = True
+                    alert_thread.start()
+                cv2.putText(gray_frame_colored, "DROWSINESS ALERT!", (20, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         else:
             eye_status = "Open"
+            eye_closed_time = None
+            if alert_thread and alert_thread.is_alive():
+                alert_thread = None
 
         # draw the landmarks for both eyes in color on the grayscale frame
         for (x, y) in left_eye:
